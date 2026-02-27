@@ -1,37 +1,84 @@
-## hellodharti_enum.py
-##uvicorn hellodharti_enum:app --reload
-## Enum set krta hai ki ham kewal predefine values hi use krein , like labours me kewal registered user hi aainn
-## yaha ham date ko optional banaenge
-from fastapi import FastAPI, HTTPException, Query, Path, status
-from pydantic import BaseModel, Field
-from typing import List, Optional
-from datetime import date
-from enum import Enum
-from typing import Annotated
-from fastapi import Query
+## uvicorn temp:app --reload
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Path, HTTPException
+from datetime import date
+from typing import Annotated
+from pymongo import MongoClient
 
 app = FastAPI()
 
-hisab_list = []
+# MongoDB Connection
+client = MongoClient("mongodb+srv://db_sat:otXj03GNr05TcQHK@cluster0.iotuxte.mongodb.net/jobtracker?retryWrites=true&w=majority&appName=Cluster0")
 
-# ✅ Enum for Name
-class NameEnum(str, Enum):
-    satwik = "Satwik"
-    rahul = "Rahul"
-    aman = "Aman"
+db = client["jobtracker"]
+collection = db["hisab_data"]
 
-@app.post("/hisab/{Name}/{Ammount}")
-def save_data(Name: NameEnum, Ammount: Annotated[float,Path(gt=0, lt=1000)], hisab_date: date | None =None):  ##where we were defining data type we added our class
-                                                                                        ## and date is optional
-                                                                                        ## using annotated 
-    hisab_list.append({"Name": Name, "Amount": Ammount, "hisab_date": hisab_date}) 
-    
+
+
+@app.post("/hisab/{name}/{amount}")
+def save_data(
+    name: str,
+    amount: Annotated[float, Path(gt=0)],
+    hisab_date: date | None = None
+):
+    data = {
+        "Name": name,
+        "Amount": amount,
+        "hisab_date": str(hisab_date) if hisab_date else None
+    }
+
+    collection.insert_one(data)
+
     return {"message": "Added successfully"}
 
-@app.get("/data/{Name}")
-def give_data(Name: NameEnum):
-    for x in hisab_list:
-        if x["Name"] == Name:
-            return {"paid RS":x["Amount"], "Till-Date":x["hisab_date"]}
+
+
+@app.get("/data/{name}")
+def give_data(name: str):
+
+    return_list = []
+    total = 0
+
+    records = collection.find({"Name": name})
+
+    for x in records:
+        return_list.append({
+            "paid RS": x["Amount"],
+            "On-Date": x.get("hisab_date")
+        })
+        total += x["Amount"]
+
+    return {
+        "Transactions": return_list,
+        "Total_given": total
+    }
+
+
+
+@app.delete("/delete/{name}")
+def delete_data(
+    name: str,
+    hisab_date: date
+):
+    delete_date = str(hisab_date)
+
+    result = collection.delete_one({
+        "Name": name,
+        "hisab_date": delete_date
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    return {"message": "Record deleted successfully"}
+
+@app.get("/workers")
+def get_unique_workers():
+
+    # Get distinct names from MongoDB
+    workers = collection.distinct("Name")
+
+    return {
+        "Total_workers": len(workers),
+        "Workers": workers
+    }
